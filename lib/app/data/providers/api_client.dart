@@ -3,24 +3,37 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 /// A thin wrapper around the `http` package that centralizes the base URL,
-/// default headers, timeouts and JSON decoding for the whole app.
+/// default headers, auth token, timeouts and JSON decoding for the whole app.
 ///
 /// Registered as a permanent dependency in [InitialBinding] so any repository
-/// can obtain it via `Get.find<ApiClient>()`.
+/// can obtain it via `Get.find<ApiClient>()`. The bearer token is read lazily
+/// through [tokenProvider] on every request, so freshly stored tokens are
+/// picked up automatically without re-creating the client.
 class ApiClient {
-  ApiClient({required this.baseUrl, http.Client? client})
-    : _client = client ?? http.Client();
+  ApiClient({
+    required this.baseUrl,
+    this.tokenProvider,
+    this.zoneIdProvider,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
 
   final String baseUrl;
+  final String? Function()? tokenProvider;
+  final String? Function()? zoneIdProvider;
   final http.Client _client;
 
   static const Duration _timeout = Duration(seconds: 30);
 
-  Map<String, String> get _defaultHeaders => {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    // Add auth tokens here, e.g. 'Authorization': 'Bearer $token'.
-  };
+  Map<String, String> get _defaultHeaders {
+    final token = tokenProvider?.call();
+    final zoneId = zoneIdProvider?.call();
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      if (zoneId != null && zoneId.isNotEmpty) 'zoneId': zoneId,
+    };
+  }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final normalized = path.startsWith('/') ? path.substring(1) : path;
@@ -57,7 +70,9 @@ class ApiClient {
     return _process(response);
   }
 
-  /// Decodes the body and throws [ApiException] on non-2xx responses.
+  /// Decodes the body and throws [ApiException] on non-2xx responses. The API
+  /// wraps payloads in a `{response_code, message, data, errors}` envelope; the
+  /// human-readable `message` is surfaced on failure.
   dynamic _process(http.Response response) {
     final status = response.statusCode;
     final dynamic decoded =
@@ -65,12 +80,12 @@ class ApiClient {
 
     if (status >= 200 && status < 300) return decoded;
 
-    throw ApiException(
-      statusCode: status,
-      message: decoded is Map && decoded['message'] != null
-          ? '${decoded['message']}'
-          : 'Request failed with status $status',
-    );
+    String message = 'Request failed with status $status';
+    if (decoded is Map && decoded['message'] != null) {
+      message = '${decoded['message']}';
+    }
+
+    throw ApiException(statusCode: status, message: message);
   }
 
   void dispose() => _client.close();

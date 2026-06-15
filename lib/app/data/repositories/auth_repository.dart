@@ -1,35 +1,42 @@
 import '../models/user_model.dart';
 import '../providers/api_client.dart';
+import '../services/storage_service.dart';
 
-/// Handles authentication. Currently backed by mock data with simulated
-/// latency; swap the body of [login] for `apiClient.post(...)` when the
-/// backend is ready.
+/// Handles authentication against `/api/auth/login` and owns the session
+/// lifecycle (persisting and clearing the token + user via [StorageService]).
 class AuthRepository {
-  AuthRepository({required this.apiClient});
+  AuthRepository({required this.apiClient, required this.storage});
 
   final ApiClient apiClient;
+  final StorageService storage;
 
+  /// Logs in with the given credentials. On success the access token and user
+  /// are persisted, and the parsed [UserModel] is returned.
   Future<UserModel> login({
-    required String identifier,
+    required String email,
     required String password,
   }) async {
-    await Future<void>.delayed(const Duration(milliseconds: 900));
+    final dynamic body = await apiClient.post(
+      '/api/auth/login',
+      body: {'email': email, 'password': password},
+    );
 
-    // Demo validation. Replace with a real API call:
-    // final data = await apiClient.post('auth/login',
-    //     body: {'identifier': identifier, 'password': password});
-    // return UserModel.fromJson(data['user'] as Map<String, dynamic>);
-    if (password.length < 6) {
+    final data = body is Map ? body['data'] as Map<String, dynamic>? : null;
+    final token = data?['access_token'] as String?;
+    final userJson = data?['user'] as Map<String, dynamic>?;
+
+    if (token == null || token.isEmpty || userJson == null) {
       throw ApiException(
-        statusCode: 401,
-        message: 'Invalid credentials. Please try again.',
+        statusCode: 500,
+        message: 'Unexpected response from server.',
       );
     }
 
-    return UserModel(
-      id: '1',
-      name: 'Bazardhor User',
-      identifier: identifier,
-    );
+    final user = UserModel.fromJson(userJson);
+    await storage.saveSession(token: token, user: user);
+    return user;
   }
+
+  /// Clears the stored session.
+  Future<void> logout() => storage.clear();
 }

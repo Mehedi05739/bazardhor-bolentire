@@ -33,7 +33,7 @@ class LoginController extends GetxController {
 
   String? validatePassword(String? value) {
     if ((value ?? '').isEmpty) return 'Enter your password';
-    if ((value ?? '').length < 6) return 'Password must be at least 6 characters';
+    if ((value ?? '').length < 8) return 'Password must be at least 8 characters';
     return null;
   }
 
@@ -44,7 +44,7 @@ class LoginController extends GetxController {
     try {
       isLoading.value = true;
       await repository.login(
-        identifier: identifierCtrl.text.trim(),
+        email: identifierCtrl.text.trim(),
         password: passwordCtrl.text,
       );
       Get.offAllNamed(Routes.home);

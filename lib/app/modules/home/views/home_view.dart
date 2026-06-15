@@ -14,21 +14,31 @@ class HomeView extends GetView<HomeController> {
     return Scaffold(
       body: SafeArea(
         child: Obx(() {
-          if (controller.isLoading.value && controller.bazaars.isEmpty) {
+          final hasData = controller.bazaars.isNotEmpty;
+          if ((controller.isResolvingZone.value || controller.isLoading.value) &&
+              !hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (controller.errorMessage.value != null &&
-              controller.bazaars.isEmpty) {
+          // Zone must be resolved before data can load; show its error first.
+          if (controller.zoneError.value != null && !hasData) {
+            return _ErrorState(
+              message: controller.zoneError.value!,
+              onRetry: controller.initialize,
+            );
+          }
+          if (controller.errorMessage.value != null && !hasData) {
             return _ErrorState(
               message: controller.errorMessage.value!,
               onRetry: controller.loadData,
             );
           }
           return RefreshIndicator(
-            onRefresh: controller.loadData,
+            onRefresh: controller.initialize,
             child: CustomScrollView(
               slivers: [
-                const SliverToBoxAdapter(child: _Header()),
+                SliverToBoxAdapter(
+                  child: _Header(controller: controller),
+                ),
                 _SectionHeader(title: 'Bazaars near you'),
                 SliverToBoxAdapter(
                   child: SizedBox(
@@ -81,7 +91,9 @@ class HomeView extends GetView<HomeController> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({required this.controller});
+
+  final HomeController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -93,10 +105,7 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Good morning 👋',
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                ),
+                _LocationLine(controller: controller),
                 const SizedBox(height: 2),
                 Text(
                   'Bazardhor',
@@ -107,17 +116,95 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            height: 46,
-            width: 46,
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Icon(Icons.notifications_none_rounded),
-          ),
+          _IconBox(icon: Icons.logout_rounded, onTap: controller.logout),
         ],
+      ),
+    );
+  }
+}
+
+/// Shows the resolved zone next to a pin icon, reflecting the live resolution
+/// state (locating / resolved / failed-with-retry).
+class _LocationLine extends StatelessWidget {
+  const _LocationLine({required this.controller});
+
+  final HomeController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final resolving = controller.isResolvingZone.value;
+      final name = controller.zoneName.value;
+      final hasError = controller.zoneError.value != null;
+
+      late final String label;
+      if (resolving && name == null) {
+        label = 'Locating you…';
+      } else if (name != null) {
+        label = name;
+      } else if (hasError) {
+        label = 'Zone unavailable · Retry';
+      } else {
+        label = 'Set your location';
+      }
+
+      return InkWell(
+        onTap: hasError ? controller.initialize : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasError ? Icons.location_off_outlined : Icons.location_on,
+              size: 15,
+              color: hasError ? AppColors.error : AppColors.primary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: hasError ? AppColors.error : AppColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (resolving && name == null) ...[
+              const SizedBox(width: 6),
+              const SizedBox(
+                height: 11,
+                width: 11,
+                child: CircularProgressIndicator(strokeWidth: 1.6),
+              ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+}
+
+class _IconBox extends StatelessWidget {
+  const _IconBox({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          height: 46,
+          width: 46,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Icon(icon),
+        ),
       ),
     );
   }
